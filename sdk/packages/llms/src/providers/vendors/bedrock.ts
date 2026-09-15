@@ -2,6 +2,7 @@ import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock";
 import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
 import type { GatewayResolvedProviderConfig } from "@cline/shared";
 import { getGeneratedModelsForProvider } from "../../catalog/catalog.generated-access";
+import { buildAiSdkStreamConfig } from "../ai-sdk";
 import type { ProviderFactoryResult } from "./types";
 
 type BedrockCredentials = {
@@ -173,6 +174,20 @@ function hasBedrockCatalogModel(modelId: string): boolean {
 	return modelId in getGeneratedModelsForProvider("bedrock");
 }
 
+export function shouldOmitBedrockTemperature(modelId: string): boolean {
+	if (modelId.includes(":application-inference-profile/")) {
+		return true;
+	}
+
+	const capabilities =
+		getGeneratedModelsForProvider("bedrock")[modelId]?.capabilities;
+	return (
+		capabilities !== undefined &&
+		capabilities.length > 0 &&
+		!capabilities.includes("temperature")
+	);
+}
+
 export async function createBedrockProviderModule(
 	config: GatewayResolvedProviderConfig,
 ): Promise<ProviderFactoryResult> {
@@ -237,6 +252,13 @@ export async function createBedrockProviderModule(
 			language: (modelId) =>
 				provider(resolveBedrockModelId(modelId, modelIdOptions)),
 			imageGeneration: (modelId) => provider.image(modelId),
+		},
+		buildStreamConfig: (request, context) => {
+			const streamConfig = buildAiSdkStreamConfig(request, context);
+			if (shouldOmitBedrockTemperature(context.model.id)) {
+				delete streamConfig.temperature;
+			}
+			return streamConfig;
 		},
 	};
 }

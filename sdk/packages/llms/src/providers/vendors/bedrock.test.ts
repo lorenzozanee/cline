@@ -1,4 +1,7 @@
-import type { GatewayResolvedProviderConfig } from "@cline/shared";
+import type {
+	GatewayResolvedProviderConfig,
+	GatewayStreamRequest,
+} from "@cline/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createBedrockProviderModule, resolveBedrockModelId } from "./bedrock";
 
@@ -547,6 +550,76 @@ describe("resolveBedrockModelId", () => {
 		}
 	});
 });
+
+describe("Bedrock stream configuration", () => {
+	it("omits temperature for models that do not advertise temperature support", async () => {
+		const provider = await createBedrockProviderModule(config({}));
+		const request = streamRequest({ temperature: 0.7 });
+		const context = streamContext("anthropic.claude-sonnet-5");
+
+		const streamConfig = provider.buildStreamConfig?.(request, context);
+
+		expect(streamConfig).not.toHaveProperty("temperature");
+	});
+
+	it("omits temperature for application inference profile ARNs", async () => {
+		const provider = await createBedrockProviderModule(config({}));
+		const request = streamRequest({ temperature: 0.7 });
+		const context = streamContext(
+			"arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/xyz",
+		);
+
+		const streamConfig = provider.buildStreamConfig?.(request, context);
+
+		expect(streamConfig).not.toHaveProperty("temperature");
+	});
+
+	it("preserves temperature and shared stream settings for supported models", async () => {
+		const provider = await createBedrockProviderModule(config({}));
+		const request = streamRequest({
+			temperature: 0.2,
+			maxTokens: 512,
+			reasoning: { enabled: true, effort: "high" },
+		});
+		const context = streamContext("anthropic.claude-sonnet-4-6");
+
+		const streamConfig = provider.buildStreamConfig?.(request, context);
+
+		expect(streamConfig).toMatchObject({
+			temperature: 0.2,
+			maxOutputTokens: 512,
+			reasoning: "high",
+		});
+	});
+});
+
+function streamContext(modelId: string) {
+	return {
+		provider: {
+			id: "bedrock",
+			name: "AWS Bedrock",
+			defaultModelId: modelId,
+			models: [],
+		},
+		model: {
+			providerId: "bedrock",
+			id: modelId,
+			name: modelId,
+		},
+		config: config({}),
+	};
+}
+
+function streamRequest(
+	overrides: Partial<GatewayStreamRequest>,
+): GatewayStreamRequest {
+	return {
+		providerId: "bedrock",
+		modelId: "anthropic.claude-sonnet-5",
+		messages: [],
+		...overrides,
+	};
+}
 
 function config(
 	overrides: Partial<GatewayResolvedProviderConfig>,
