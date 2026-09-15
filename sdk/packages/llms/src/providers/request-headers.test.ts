@@ -119,6 +119,34 @@ describe("resolveProviderRequestHeaders", () => {
 		});
 	});
 
+	it("uses the request session as the LiteLLM trace id for OpenAI-compatible providers", () => {
+		for (const sessionId of ["task-a", "task-b", "task-a"]) {
+			const headers = resolveProviderRequestHeaders({
+				providerId: "openai-compatible",
+				sessionId,
+				defaultSource: "cli",
+				coreVersion: "0.2.0",
+				headers: {
+					stored: { "X-LiteLLM-Trace-ID": "stored-session" },
+					config: { "x-litellm-trace-id": "config-session" },
+					session: { "x-litellm-trace-id": "session-layer" },
+				},
+			});
+
+			expect(headers).toEqual({ "x-litellm-trace-id": sessionId });
+		}
+
+		expect(
+			resolveProviderRequestHeaders({
+				providerId: "anthropic",
+				sessionId: "task-anthropic",
+				defaultSource: "cli",
+				coreVersion: "0.2.0",
+				headers: { session: { "x-litellm-trace-id": "custom" } },
+			}),
+		).toEqual({ "x-litellm-trace-id": "custom" });
+	});
+
 	it("preserves existing precedence for providers without required headers", () => {
 		expect(
 			resolveProviderRequestHeaders({
