@@ -27,6 +27,11 @@ import {
 	type ProcessStartTokenProbeResult,
 	probeProcessStartTokenAsync,
 } from "../../../runtime/process-start-token";
+import {
+	mergeSpawnEnv,
+	resolveSpawnExecutable,
+	windowsSystemExecutable,
+} from "../../../runtime/spawn-executable";
 import { TimeoutError } from "../helpers";
 import type { ShellExecutor } from "../types";
 import {
@@ -675,10 +680,32 @@ function spawnAndCollect(
 	}
 	return new Promise((resolve, reject) => {
 		const isWindows = process.platform === "win32";
+		// A spread would keep both `Path` and an overriding `PATH` on Windows;
+		// mergeSpawnEnv lets the override win in any case.
+		const env = mergeSpawnEnv(process.env, config.env);
 
-		const child = spawn(config.executable, config.args, {
+		// Never hand spawn a bare program name on Windows. libuv would search
+		// the command's working directory before PATH, so a `powershell.exe`
+		// planted in the workspace could run in place of the configured shell
+		// (or of a `powershell` the model named in a nested wrapper or a
+		// structured command). Resolve through PATH first, and treat a name
+		// that is not on PATH as the missing program it is.
+		const executable = resolveSpawnExecutable(config.executable, {
 			cwd: config.cwd,
-			env: { ...process.env, ...config.env },
+			env,
+		});
+		if (executable === undefined) {
+			reject(
+				new Error(
+					`Failed to execute command: "${config.executable}" was not found on PATH`,
+				),
+			);
+			return;
+		}
+
+		const child = spawn(executable, config.args, {
+			cwd: config.cwd,
+			env,
 			stdio: ["pipe", "pipe", "pipe"],
 			detached: !isWindows,
 			// Prevent a console window from flashing on Windows when the
@@ -730,7 +757,9 @@ function spawnAndCollect(
 					};
 					try {
 						killer = spawn(
-							"taskkill.exe",
+							// The fixed System32 path: a bare "taskkill.exe" would be
+							// searched for in this process's cwd before PATH.
+							windowsSystemExecutable("taskkill.exe"),
 							["/PID", String(childPid), "/T", "/F"],
 							{ stdio: "ignore", shell: false, windowsHide: true },
 						);

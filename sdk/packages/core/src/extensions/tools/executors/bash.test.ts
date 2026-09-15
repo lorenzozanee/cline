@@ -969,6 +969,51 @@ describe.runIf(process.platform === "win32")("createWindowsExecutor", () => {
 		);
 
 		it.runIf(shell === "powershell.exe" || hasPwsh)(
+			`does not let a ${shell} planted in the working directory shadow the real one`,
+			async () => {
+				// libuv resolves a bare program name by searching the child's cwd
+				// before PATH, which PowerShell itself never does. Whatever names
+				// the shell — the configured bare default, a nested wrapper, or a
+				// structured command — a same-named file in the workspace must not
+				// be what runs. The planted files are empty, so if one were picked
+				// the spawn would fail rather than execute anything.
+				const cwd = await mkdtemp(join(tmpdir(), "cline-planted-shell-"));
+				try {
+					await writeFile(join(cwd, "powershell.exe"), "");
+					await writeFile(join(cwd, "pwsh.exe"), "");
+					const bareName = shell === "powershell.exe" ? "powershell" : "pwsh";
+					const script = "(Get-Process -Id $PID).Path";
+					const realShell =
+						shell === "powershell.exe"
+							? /\\WindowsPowerShell\\v1\.0\\powershell\.exe$/i
+							: /\\pwsh\.exe$/i;
+					const runs = [
+						createShellExecutor({ shell: bareName })(script, cwd, ctx),
+						createShellExecutor({ shell })(
+							`${bareName} -NoProfile -Command "${script}"`,
+							cwd,
+							ctx,
+						),
+						createShellExecutor({ shell })(
+							{
+								command: bareName,
+								args: ["-NoProfile", "-NonInteractive", "-Command", script],
+							},
+							cwd,
+							ctx,
+						),
+					];
+					for (const output of await Promise.all(runs)) {
+						expect(output.trim()).toMatch(realShell);
+						expect(output.toLowerCase()).not.toContain(cwd.toLowerCase());
+					}
+				} finally {
+					await rm(cwd, { recursive: true, force: true });
+				}
+			},
+		);
+
+		it.runIf(shell === "powershell.exe" || hasPwsh)(
 			`reports a failed final native command through ${shell}`,
 			async () => {
 				const executor = createShellExecutor({ shell });

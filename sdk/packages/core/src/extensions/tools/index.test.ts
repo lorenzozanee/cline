@@ -86,8 +86,12 @@ describe("createBuiltinTools shell configuration", () => {
 		const tool = await executeRunCommands(options);
 
 		expect(tool.description).toContain(expectedDescription);
+		// On Windows the executor resolves a bare shell name through PATH to
+		// its absolute path before spawning, so only the file name is stable
+		// across platforms.
+		const shellFileName = expectedShell.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 		expect(spawn).toHaveBeenCalledWith(
-			expectedShell,
+			expect.stringMatching(new RegExp(`(?:^|[\\\\/])${shellFileName}$`, "i")),
 			expect.any(Array),
 			expect.any(Object),
 		);
