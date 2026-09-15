@@ -148,6 +148,46 @@ describe("resolveProviderRequestHeaders", () => {
 		).toEqual({ "x-session": "session" });
 	});
 
+	it("uses the request session for LiteLLM trace correlation", () => {
+		const resolveTraceHeaders = (sessionId: string) =>
+			resolveProviderRequestHeaders({
+				providerId: "openai-compatible",
+				sessionId,
+				defaultSource: "cli",
+				coreVersion: "0.2.0",
+				headers: {
+					config: { "X-LiteLLM-Trace-ID": "stale-session" },
+				},
+			});
+		const traceHeaders = (sessionId: string) =>
+			new Headers(resolveTraceHeaders(sessionId));
+
+		const resolved = resolveTraceHeaders("session-a");
+		expect(
+			Object.keys(resolved ?? {}).filter(
+				(key) => key.toLowerCase() === "x-litellm-trace-id",
+			),
+		).toEqual(["x-litellm-trace-id"]);
+		expect(resolved?.["x-litellm-trace-id"]).toBe("session-a");
+
+		expect(traceHeaders("session-a").get("x-litellm-trace-id")).toBe(
+			"session-a",
+		);
+		expect(traceHeaders("session-b").get("x-litellm-trace-id")).toBe(
+			"session-b",
+		);
+		expect(
+			new Headers(
+				resolveProviderRequestHeaders({
+					providerId: "anthropic",
+					sessionId: "session-a",
+					defaultSource: "cli",
+					coreVersion: "0.2.0",
+				}),
+			).has("x-litellm-trace-id"),
+		).toBe(false);
+	});
+
 	it("identifies Go conversations and the client while preserving custom headers", () => {
 		for (const sessionId of ["conversation-a", "conversation-b"]) {
 			expect(

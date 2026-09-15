@@ -142,6 +142,9 @@ function resolveRequiredProviderHeaders(
 			"User-Agent": `Cline/${trimNonEmpty(input.client?.version) ?? input.coreVersion}`,
 		};
 	}
+	if (input.providerId === "openai-compatible") {
+		return { "x-litellm-trace-id": input.sessionId };
+	}
 	return (
 		buildClineRequestHeaders(input) ?? buildOpenAICodexRequestHeaders(input)
 	);
@@ -158,12 +161,21 @@ export function resolveProviderRequestHeaders(
 ): Record<string, string> | undefined {
 	const requiredHeaders = resolveRequiredProviderHeaders(input);
 	if (requiredHeaders) {
-		return {
+		const headers = {
 			...(input.headers?.stored ?? {}),
 			...(input.headers?.config ?? {}),
 			...(input.headers?.session ?? {}),
 			...requiredHeaders,
 		};
+		if (input.providerId === "openai-compatible") {
+			for (const key of Object.keys(headers)) {
+				if (key.toLowerCase() === "x-litellm-trace-id") {
+					delete headers[key];
+				}
+			}
+			headers["x-litellm-trace-id"] = input.sessionId;
+		}
+		return headers;
 	}
 	const headers = resolveDefaultProviderHeaders(input.headers);
 	return headers ? { ...headers } : undefined;
